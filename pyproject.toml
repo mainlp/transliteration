@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whisper-steer"
+version = "1.0.0"
+description = "Paper reproduction code for zero-shot transliteration with script vectors"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "cyrtranslit",
+  "datasets<4",
+  "editdistance",
+  "GlotScript",
+  "librosa",
+  "numpy",
+  "openai-whisper",
+  "opencc-python-reimplemented",
+  "pandas",
+  "pyicu",
+  "pykakasi",
+  "regex",
+  "soundfile",
+  "torch",
+  "tqdm",
+  "uroman",
+]
+
+[project.optional-dependencies]
+owsm = ["espnet", "espnet-model-zoo"]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+whisper-steer = "whisper_steer.cli:main"
+
+[tool.setuptools]
+packages = ["whisper_steer"]
+
+[tool.ruff]
+line-length = 100
