@@ -12,7 +12,7 @@ LAYERS_BY_MODEL() {
   esac
 }
 
-mkdir -p artifacts/vectors artifacts/results
+mkdir -p artifacts/vectors artifacts/results artifacts/sigma
 
 run_language() {
   local lang="$1" stem="$2" source_prompt="$3" target_prompt="$4"
@@ -39,13 +39,25 @@ run_language() {
       -s bias-sigma-0.0 -p mean -b whisper \
       -o "artifacts/results/${lang}_${model}_reverse_prompt.csv"
 
+    local forward_metric reverse_metric
+    case "$lang" in
+      sr_rs) forward_metric=sr_to_lat; reverse_metric=sr_to_cyl ;;
+      cmn_hans_cn) forward_metric=zh_to_trad; reverse_metric=zh_to_sim ;;
+    esac
+
+    # Section 3.4: choose sigma on validation by highest mean accuracy, then
+    # evaluate that selected value once on the held-out test split.
     whisper-steer infer --model "$model" --src-lang "$lang" --tgt-lang "$lang" \
       --src-prompt "" --trg-prompt "" --layers-to-steer $layers \
-      -v "$vector" -s bias-sigma-0.1 -p mean -b whisper \
+      -v "$vector" -s bias-sigma-0.0 -p mean -b whisper \
+      --tune-sigma --selection mean --metric "$forward_metric" \
+      --validation-output-csv "artifacts/sigma/${lang}_${model}_forward.csv" \
       -o "artifacts/results/${lang}_${model}_forward_steer.csv"
     whisper-steer infer --model "$model" --src-lang "$lang" --tgt-lang "$lang" \
       --src-prompt "" --trg-prompt "" --layers-to-steer $layers \
-      -v "$reverse_vector" -s bias-sigma-0.1 -p mean -b whisper \
+      -v "$reverse_vector" -s bias-sigma-0.0 -p mean -b whisper \
+      --tune-sigma --selection mean --metric "$reverse_metric" \
+      --validation-output-csv "artifacts/sigma/${lang}_${model}_reverse.csv" \
       -o "artifacts/results/${lang}_${model}_reverse_steer.csv"
 
     # One-shot uses the first pair passing the same theta=0.4 filter.
@@ -56,11 +68,15 @@ run_language() {
       -v "$vector" -s bias-sigma-0.1 -p mean -b whisper
     whisper-steer infer --model "$model" --src-lang "$lang" --tgt-lang "$lang" \
       --src-prompt "" --trg-prompt "" --layers-to-steer $layers \
-      -v "$vector" -s bias-sigma-0.1 -p mean -b whisper \
+      -v "$vector" -s bias-sigma-0.0 -p mean -b whisper \
+      --tune-sigma --selection mean --metric "$forward_metric" \
+      --validation-output-csv "artifacts/sigma/${lang}_${model}_forward_one_shot.csv" \
       -o "artifacts/results/${lang}_${model}_forward_one_shot.csv"
     whisper-steer infer --model "$model" --src-lang "$lang" --tgt-lang "$lang" \
       --src-prompt "" --trg-prompt "" --layers-to-steer $layers \
-      -v "$reverse_vector" -s bias-sigma-0.1 -p mean -b whisper \
+      -v "$reverse_vector" -s bias-sigma-0.0 -p mean -b whisper \
+      --tune-sigma --selection mean --metric "$reverse_metric" \
+      --validation-output-csv "artifacts/sigma/${lang}_${model}_reverse_one_shot.csv" \
       -o "artifacts/results/${lang}_${model}_reverse_one_shot.csv"
   done
 }

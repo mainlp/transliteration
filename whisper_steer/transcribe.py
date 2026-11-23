@@ -91,6 +91,21 @@ _METRIC_FNS = [
     ("sr_to_lat", serbian_latin_accuracy),
 ]
 
+def select_best_sigma(results, sigmas, metric, selection="mean"):
+    """Select sigma using the validation criterion from Section 3.4."""
+    columns = [f"{metric}_{i}_acc" for i in range(1, len(sigmas) + 1)]
+    missing = [column for column in columns if column not in results]
+    if missing:
+        raise ValueError(f"Unknown metric {metric!r}; missing validation columns: {missing}")
+    if selection == "mean":
+        scores = results[columns].mean(axis=0)
+    elif selection == "max":
+        scores = results[columns].max(axis=0)
+    else:
+        raise ValueError(f"Unknown sigma selection criterion: {selection}")
+    best_index = columns.index(scores.idxmax())
+    return sigmas[best_index], float(scores.iloc[best_index])
+
 @torch.no_grad()
 def find_best_sigma(model, steer_weights, src_lang, tgt_lang, tgt_prompt, tgt_script, pool_config, backend_config, layers_to_steer, cache_dir, enc_steer_weights=None, search_sigmas=None):
     if tgt_prompt == "":

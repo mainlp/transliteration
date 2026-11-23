@@ -7,7 +7,7 @@ from pathlib import Path
 from . import config
 from .learn import train_from_fleurs, train_from_fleurs_with_steering
 from .io import save_weights_npz, load_weights_npz, load_enc_weights_npz
-from .transcribe import evaluate, find_best_sigma
+from .transcribe import evaluate, find_best_sigma, select_best_sigma
 from .backend import get_adapter
 from .config import DEVICE
 #from .baselines import BASELINE_REGISTRY
@@ -103,6 +103,11 @@ def get_args(argv):
     p_infer.add_argument("--layers-to-steer", nargs="+", type=int, default=list(range(32)), help="Layers to steer (default: all layers)")
     p_infer.add_argument("-o", "--output-csv", type=Path, required=True)
     p_infer.add_argument("--steer", choices=["decoder", "encoder", "both"], default="decoder", help="Which part of the model to steer (default: decoder)")
+    p_infer.add_argument("--tune-sigma", action="store_true", help="Tune sigma on FLEURS validation before test inference")
+    p_infer.add_argument("--sigmas", nargs="+", type=float, choices=config.SIGMA_GRID, default=list(config.SIGMA_GRID), help="Validation sigma grid")
+    p_infer.add_argument("--metric", choices=["roman", "cyrl", "zh_to_trad", "zh_to_sim", "sr_to_cyl", "sr_to_lat"], help="Target validation metric (required with --tune-sigma)")
+    p_infer.add_argument("--selection", choices=["mean", "max"], default="mean", help="Use mean for script confusion and max for transliteration")
+    p_infer.add_argument("--validation-output-csv", type=Path, help="Optionally save validation predictions from sigma tuning")
     
 
     """
@@ -217,6 +222,33 @@ def main(argv=None):
     elif args.cmd == "infer":
         weights = load_weights_npz(args.vector) if args.steer in ("decoder", "both") else None
         enc_weights = load_enc_weights_npz(args.vector) if args.steer in ("encoder", "both") else None
+        steer_config = args.steer_config
+        if args.tune_sigma:
+            if args.metric is None:
+                raise SystemExit("--metric is required with --tune-sigma")
+            sigma_keys = [f"bias-sigma-{sigma:.1f}" for sigma in args.sigmas]
+            validation_df = find_best_sigma(
+                model=model,
+                steer_weights=weights,
+                src_lang=list(args.src_lang)[0],
+                tgt_lang=list(args.tgt_lang)[0],
+                tgt_prompt=list(args.trg_prompt)[0],
+                tgt_script=args.tgt_script,
+                pool_config=args.pool_config,
+                backend_config=args.backend_config,
+                layers_to_steer=list(args.layers_to_steer),
+                cache_dir=args.cache_dir,
+                enc_steer_weights=enc_weights,
+                search_sigmas=sigma_keys,
+            )
+            best_sigma, validation_score = select_best_sigma(
+                validation_df, args.sigmas, args.metric, args.selection
+            )
+            steer_config = config.STEER_CONFIGS[f"bias-sigma-{best_sigma:.1f}"]
+            print(f"Selected sigma={best_sigma:.1f} on validation ({args.selection} {args.metric}={validation_score:.4f})")
+            if args.validation_output_csv is not None:
+                args.validation_output_csv.parent.mkdir(parents=True, exist_ok=True)
+                validation_df.to_csv(args.validation_output_csv, index=False, escapechar='\\')
         df = evaluate(
             model=model,
             steer_weights=weights,
@@ -224,7 +256,7 @@ def main(argv=None):
             tgt_lang=list(args.tgt_lang)[0],
             tgt_prompt=list(args.trg_prompt)[0],
             tgt_script=args.tgt_script,
-            steer_config=args.steer_config,
+            steer_config=steer_config,
             pool_config=args.pool_config,
             backend_config=args.backend_config,
             layers_to_steer=list(args.layers_to_steer),
